@@ -6,3 +6,5 @@
   `sudo apt install openssh-server`
 * 安装vim
   `sudo apt install vim`
+* 安装代码管理工具git
+  `sudo apt install git`
