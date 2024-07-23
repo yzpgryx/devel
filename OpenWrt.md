@@ -4,7 +4,7 @@
 3. make package/mypkg/compile V=s
 
 ## 新增启动项
-1. 在/etc/init.d/中添加脚本
+1. 在/etc/init.d/中添加脚本,并添加可执行权限
 2. 创建符号链接到/etc/rc.d/
 3. /etc/init.d/xxx enable
 ```
