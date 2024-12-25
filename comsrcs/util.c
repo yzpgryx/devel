@@ -27,6 +27,41 @@ char* bin2hex(unsigned char* bin, unsigned int len)
     return ret;
 }
 
+unsigned char hex_to_byte(char hex_char) {
+    static unsigned char hex_table[] = {
+        ['0'] = 0x0, ['1'] = 0x1, ['2'] = 0x2, ['3'] = 0x3,
+        ['4'] = 0x4, ['5'] = 0x5, ['6'] = 0x6, ['7'] = 0x7,
+        ['8'] = 0x8, ['9'] = 0x9, ['a'] = 0xa, ['b'] = 0xb,
+        ['c'] = 0xc, ['d'] = 0xd, ['e'] = 0xe, ['f'] = 0xf,
+        ['A'] = 0xa, ['B'] = 0xb, ['C'] = 0xc, ['D'] = 0xd,
+        ['E'] = 0xe, ['F'] = 0xf
+    };
+    return hex_table[(unsigned char)hex_char];
+}
+
+unsigned char* hex2bin(const char* hexstr, unsigned int* len) {
+    int hex_len = strlen(hexstr);
+
+    if (hex_len % 2 != 0) {
+        *len = 0;
+        return NULL;
+    }
+
+    *len = hex_len / 2;
+    unsigned char* bin = (unsigned char*)malloc(*len);
+
+    if (bin == NULL) {
+        *len = 0;
+        return NULL;
+    }
+
+    for (int i = 0; i < *len; i++) {
+        bin[i] = (hex_to_byte(hexstr[2 * i]) << 4) | hex_to_byte(hexstr[2 * i + 1]);
+    }
+
+    return bin;
+}
+
 void daemonize()
 {
     pid_t pid = 0;
@@ -76,6 +111,34 @@ int file_write_content(const char* path, unsigned char* in, int inlen)
     }
 
     ret = fwrite(in, 1, inlen, fp);
+    fclose(fp);
+    return ret;
+}
+
+unsigned char* file_read_content(const char* path, unsigned int* len)
+{
+    FILE* fp = NULL;
+    long size = 0;
+    unsigned char* ret = NULL;
+
+    fp = fopen(path, "rb");
+    if(!fp) {
+        log_e("read %s failed", path);
+        return NULL;
+    }
+
+    fseek(fp, 0, SEEK_END);
+    size = ftell(fp);
+
+    ret = calloc(1, size);
+    if(!ret) {
+        goto exit;
+    }
+
+    fseek(fp, 0, SEEK_SET);
+    *len = fread(ret, 1, size, fp);
+
+exit:
     fclose(fp);
     return ret;
 }
