@@ -41,7 +41,7 @@ EVP_PKEY* sm2_from_data(unsigned char* d, unsigned int dlen,
     return pkey;
 }
 
-int xalg_sm2_sign(EVP_PKEY* pkey, const unsigned char* tbs, unsigned int tbslen,
+int xalg_sm2_digest_sign(EVP_PKEY* pkey, const unsigned char* tbs, unsigned int tbslen,
     unsigned char* sig, size_t* siglen)
 {
     EVP_PKEY_CTX *ctx = NULL;
@@ -80,7 +80,7 @@ exit:
     return ret;
 }
 
-int xalg_sm2_verify(EVP_PKEY* pkey, const unsigned char* tbs, unsigned int tbslen,
+int xalg_sm2_digest_verify(EVP_PKEY* pkey, const unsigned char* tbs, unsigned int tbslen,
                unsigned char* sig, size_t siglen)
 {
     EVP_PKEY_CTX *ctx = NULL;
@@ -109,6 +109,149 @@ exit:
     EVP_PKEY_CTX_free(ctx);
     EVP_MD_CTX_free(mctx);
 
+    return ret;
+}
+
+static int xalg_sm2_compute_z(const unsigned char *id, size_t id_len,
+                              const unsigned char* pub, size_t publen,
+                              unsigned char* out, unsigned int* outlen)
+{
+    uint8_t default_id[] = {0x31,0x32,0x33,0x34,0x35,0x36,0x37,0x38,0x31,0x32,0x33,0x34,0x35,0x36,0x37,0x38};
+    uint16_t default_id_len = sizeof(default_id);
+    uint8_t idbits[2] = {0};
+    uint8_t sm2_params[32 * 4] = {
+        0xFF,0xFF,0xFF,0xFE,0xFF,0xFF,0xFF,0xFF,0xFF,0xFF,0xFF,0xFF,0xFF,0xFF,0xFF,0xFF,
+        0xFF,0xFF,0xFF,0xFF,0x00,0x00,0x00,0x00,0xFF,0xFF,0xFF,0xFF,0xFF,0xFF,0xFF,0xFC,
+        0x28,0xE9,0xFA,0x9E,0x9D,0x9F,0x5E,0x34,0x4D,0x5A,0x9E,0x4B,0xCF,0x65,0x09,0xA7,
+        0xF3,0x97,0x89,0xF5,0x15,0xAB,0x8F,0x92,0xDD,0xBC,0xBD,0x41,0x4D,0x94,0x0E,0x93,
+        0x32,0xC4,0xAE,0x2C,0x1F,0x19,0x81,0x19,0x5F,0x99,0x04,0x46,0x6A,0x39,0xC9,0x94,
+        0x8F,0xE3,0x0B,0xBF,0xF2,0x66,0x0B,0xE1,0x71,0x5A,0x45,0x89,0x33,0x4C,0x74,0xC7,
+        0xBC,0x37,0x36,0xA2,0xF4,0xF6,0x77,0x9C,0x59,0xBD,0xCE,0xE3,0x6B,0x69,0x21,0x53,
+        0xD0,0xA9,0x87,0x7C,0xC6,0x2A,0x47,0x40,0x02,0xDF,0x32,0xE5,0x21,0x39,0xF0,0xA0,
+    };
+    EVP_MD_CTX* mctx = NULL;
+    int ret = 0;
+
+    mctx = EVP_MD_CTX_new();
+    if(!mctx) {
+        return 0;
+    }
+
+    if (!out || !pub) {
+        return 0;
+    }
+
+    if(id && id_len) {
+        idbits[0] = (uint8_t)(id_len >> 5);
+        idbits[1] = (uint8_t)(id_len << 3);
+    } else {
+        idbits[0] = (uint8_t)(default_id_len >> 5);
+        idbits[1] = (uint8_t)(default_id_len << 3);
+    }
+
+    if(!EVP_DigestInit(mctx, EVP_get_digestbyname("SM3"))
+        || !EVP_DigestUpdate(mctx, idbits, sizeof(idbits))
+        || !EVP_DigestUpdate(mctx, (id && id_len) ? id : default_id,
+                     (id && id_len) ? id_len : default_id_len)
+        || !EVP_DigestUpdate(mctx, sm2_params, sizeof(sm2_params))
+        || !EVP_DigestUpdate(mctx, pub, publen)
+        || !EVP_DigestFinal(mctx, out, outlen)) {
+        ret = 0;
+    } else {
+        ret = 1;
+    }
+
+    EVP_MD_CTX_free(mctx);
+    return ret;
+}
+
+static int xalg_sm2_compute_e(const unsigned char* z, unsigned int zlen,
+                          const unsigned char* m, unsigned int mlen,
+                          unsigned char* e, unsigned int* elen)
+{
+    EVP_MD_CTX* mctx = NULL;
+    int ret = 0;
+
+    mctx = EVP_MD_CTX_new();
+    if(!mctx) {
+        return 0;
+    }
+
+    if(!EVP_DigestInit(mctx, EVP_get_digestbyname("SM3"))
+        || !EVP_DigestUpdate(mctx, z, zlen)
+        || !EVP_DigestUpdate(mctx, m, mlen)
+        || !EVP_DigestFinal(mctx, e, elen)) {
+        ret = 0;
+    } else {
+        ret = 1;
+    }
+
+    EVP_MD_CTX_free(mctx);
+    return ret;
+}
+
+int xalg_sm2_pre_sign(EVP_PKEY* pkey,
+                      const unsigned char* id, unsigned int idlen,
+                      const unsigned char* tbs, unsigned int tbslen,
+                      unsigned char* e, unsigned int* elen)
+{
+    unsigned char pub[65] = {0};
+    size_t len = sizeof(pub);
+    unsigned char z[32] = {0};
+    unsigned int zlen = sizeof(z);
+
+    EVP_PKEY_get_octet_string_param(pkey, OSSL_PKEY_PARAM_PUB_KEY,
+                                     pub, sizeof(pub), &len);
+
+    if(!xalg_sm2_compute_z(id, idlen, pub + 1, len - 1, z, &zlen)
+        || !xalg_sm2_compute_e(z, zlen, tbs, tbslen, e, elen)) {
+        return 0;
+    }
+
+    return 1;
+}
+
+int xalg_sm2_sign(EVP_PKEY* pkey, const unsigned char* e, unsigned int elen,
+             unsigned char* sig, size_t* siglen)
+{
+    EVP_PKEY_CTX *ctx = NULL;
+    int ret = 0;
+
+    ctx = EVP_PKEY_CTX_new_from_pkey(NULL, pkey, NULL);
+    if(!ctx) {
+        goto exit;
+    }
+
+    if(EVP_PKEY_sign_init(ctx) <= 0
+        || EVP_PKEY_sign(ctx, sig, siglen, e, elen) <= 0) {
+        goto exit;
+    }
+
+    ret = 1;
+exit:
+    EVP_PKEY_CTX_free(ctx);
+    return ret;
+}
+
+int xalg_sm2_verify(EVP_PKEY* pkey, const unsigned char* e, unsigned int elen,
+               unsigned char* sig, size_t siglen)
+{
+    EVP_PKEY_CTX *ctx = NULL;
+    int ret = 0;
+
+    ctx = EVP_PKEY_CTX_new_from_pkey(NULL, pkey, NULL);
+    if(!ctx) {
+        goto exit;
+    }
+
+    if(EVP_PKEY_verify_init(ctx) <= 0
+        || EVP_PKEY_verify(ctx, sig, siglen, e, elen) <= 0) {
+        goto exit;
+    }
+
+    ret = 1;
+exit:
+    EVP_PKEY_CTX_free(ctx);
     return ret;
 }
 

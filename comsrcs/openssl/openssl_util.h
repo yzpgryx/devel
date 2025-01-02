@@ -10,10 +10,22 @@ extern "C" {
 EVP_PKEY* sm2_from_data(unsigned char* priv, unsigned int privlen,
                         unsigned char* pub, unsigned int publen);
 
-int xalg_sm2_sign(EVP_PKEY* pkey, const unsigned char* tbs, unsigned int tbslen,
-             unsigned char* sig, size_t* siglen);
+int xalg_sm2_digest_sign(EVP_PKEY* pkey,
+                         const unsigned char* tbs, unsigned int tbslen,
+                         unsigned char* sig, size_t* siglen);
 
-int xalg_sm2_verify(EVP_PKEY* pkey, const unsigned char* tbs, unsigned int tbslen,
+int xalg_sm2_digest_verify(EVP_PKEY* pkey,
+                           const unsigned char* tbs, unsigned int tbslen,
+                           unsigned char* sig, size_t siglen);
+
+int xalg_sm2_pre_sign(EVP_PKEY* pkey,
+                      const unsigned char* id, unsigned int idlen,
+                      const unsigned char* tbs, unsigned int tbslen,
+                      unsigned char* e, unsigned int* elen);
+
+int xalg_sm2_sign(EVP_PKEY* pkey, const unsigned char* e, unsigned int elen,
+             unsigned char* sig, size_t* siglen);
+int xalg_sm2_verify(EVP_PKEY* pkey, const unsigned char* e, unsigned int elen,
                unsigned char* sig, size_t siglen);
 
 int d2b_ECDSA_SIG(unsigned char* sig, size_t siglen,
