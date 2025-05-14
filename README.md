@@ -20,3 +20,19 @@
   ```
 * git安装lfs
   `sudo apt install git-lfs`
+* 虚拟机配置NFS
+  1. 虚拟机安装NFS服务`sudo apt install nfs-kernel-server`
+  2. 配置共享目录
+     ```
+     sudo chown nobody:nogroup /mnt/shared
+     sudo chmod 777 /mnt/shared
+     ```
+  4. 修改NFS配置
+     向`/etx/exports`中写入`/mnt/shared *(rw,sync,no_subtree_check,no_root_squash)`
+  6. 应用NFS配置
+     ```
+     sudo exportfs -a
+     sudo systemctl restart nfs-kernel-server
+     ```
+  8. 检查NFS配置
+     `showmount -e localhost`
